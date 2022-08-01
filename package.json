@@ -1,0 +1,27 @@
+{
+  "name": "io.cordova.geolocation.test",
+  "displayName": "GeolocationTest",
+  "version": "1.0.0",
+  "description": "Test harness application for Geolocation plugin",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "ecosystem:cordova"
+  ],
+  "author": "Dave Alden",
+  "license": "Apache-2.0",
+  "cordova": {
+    "plugins": {
+      "cordova-plugin-geolocation": {}
+    },
+    "platforms": [
+      "android"
+    ]
+  },
+  "devDependencies": {
+    "cordova-android": "^11.0.0",
+    "cordova-plugin-geolocation": "github:dpa99c/cordova-plugin-geolocation"
+  }
+}
