@@ -18,6 +18,7 @@ function getOpts(){
 }
 
 function getCurrentPosition(){
+    console.log("Getting current position");
     navigator.geolocation.getCurrentPosition(function(position){
         var lat = position.coords.latitude;
         var lon = position.coords.longitude;
@@ -28,6 +29,8 @@ function getCurrentPosition(){
 }
 
 function watchPosition(){
+    clearWatch();
+    console.log("Adding position watch");
     watchId = navigator.geolocation.watchPosition(function(position){
         var lat = position.coords.latitude;
         var lon = position.coords.longitude;
@@ -41,7 +44,7 @@ function clearWatch(){
     if(watchId){
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
-        console.log("Cleared location watch");
+        console.log("Cleared existing location watch");
     }
 }
 
