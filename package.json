@@ -30,7 +30,7 @@
     "cordova-android": "^11.0.0",
     "cordova-plugin-device": "^2.1.0",
     "cordova-plugin-dialogs": "^2.0.2",
-    "cordova-plugin-geolocation": "github:dpa99c/cordova-plugin-geolocation",
+    "cordova-plugin-geolocation": "github:apache/cordova-plugin-geolocation",
     "cordova.plugins.diagnostic": "^7.1.0"
   }
 }
