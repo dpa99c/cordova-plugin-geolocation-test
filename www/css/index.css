@@ -20,3 +20,14 @@ h2{
 button{
     margin: 10px;
 }
+
+#log-output{
+    background-color: lightgrey;
+    white-space: normal;
+    word-wrap: break-word;
+}
+
+#log-output > span{
+    line-height: 20px;
+    padding: 4px;
+}
