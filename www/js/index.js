@@ -1,46 +1,61 @@
-var watchId, platform, $output, osDetails;
+var diagnostic, watchId, platform, $output, osDetails, retryCount = 0;
 
-var androidConfirmAccuratePermission = {
-    title: "Location permission issue",
-    message: "Approximate location permission has been set but may not work correctly on this version of Android (v%os_version%) so please allow precise location permission.\n\n",
-    confirmAllow: "Would you like to do this now?",
-    confirmSwitchToSettings: "Would you like to do this now in Settings?"
+var android = {
+    confirmAllowViaPrompt: "Would you like to do this now?",
+    confirmSwitchToSettings: "Would you like to do this now in Settings?",
+    lteApi32:{
+        approximateLocationPermissionIssue: {
+            confirmTitle: "Location permission issue",
+            confirmMessage: "Approximate location permission has been set but may not work correctly on this version of Android so please allow precise location permission.\n\n",
+        }
+    },
+    gteApi32:{
+        preciseLocationRequired: {
+            confirmTitle: "Precise location required",
+            confirmMessage: "This app requires access to your precise location but only approximate location permission has been set which means the app cannot work correctly. Please allow precise location permission.\n\n",
+        }
+    },
+    howToEnablePreciseLocationInSettings: {
+        title: "How to enable accurate location permission",
+        message: "When you press \"OK\", the Settings page for this app will open. Please select 'Permissions' > 'Location' and turn on 'Use precise location'. Press \"Back\" to return to the app."
+    }
 }
 
-var androidHowToChangeAccuracyInSettings = {
-    title: "How to enable accurate location permission",
-    message: "When you press \"OK\", the Settings page for this app will open. Please select 'Permissions' > 'Location' and turn on 'Use precise location'. Press \"Back\" to return to the app."
-};
 
 function onDeviceReady() {
     $('#platform').text(device.platform);
     $('#os-version').text(device.version);
 
+    diagnostic = cordova.plugins.diagnostic;
     platform = device.platform.toLowerCase();
 
     $('body').addClass(platform);
 
-    cordova.plugins.diagnostic.getDeviceOSVersion(function(details){
+    diagnostic.getDeviceOSVersion(function(details){
         osDetails = details;
 
-        $('#get-current-position').on('click', getCurrentPosition);
-        $('#watch-position').on('click', watchPosition);
+        $('#get-current-position').on('click', onClickGetCurrentPosition);
+        $('#watch-position').on('click', onClickWatchPosition);
         $('#clear-watch').on('click', clearWatch);
         $output = $('#log-output');
 
-        cordova.plugins.diagnostic.registerLocationStateChangeHandler(checkLocationPermissions, handleError);
-        checkLocationPermissions();
+        diagnostic.registerLocationStateChangeHandler(checkAndroidLocationPermissions, handleError);
+        checkAndroidLocationPermissions();
     }, handleError);
 }
 
 function getOpts(){
-    var highAccuracy = $('#high-accuracy').is(':checked')
-        || (platform === 'android' && osDetails.apiLevel < 32); // always request high accuracy on API < 32 due to bug in WebView
+    var highAccuracy = $('#high-accuracy').is(':checked');
     return {
         enableHighAccuracy: highAccuracy,
         timeout: 10000,
         maximumAge: 5000
     };
+}
+
+function onClickGetCurrentPosition(){
+    retryCount = 0;
+    getCurrentPosition();
 }
 
 function getCurrentPosition(){
@@ -52,8 +67,15 @@ function getCurrentPosition(){
         log("Current position: "+lat+","+lon);
     }, function(error){
         logError("Error getting current position", error);
-        checkLocationPermissions();
+        checkAndroidLocationPermissions(function(statuses){
+            handlePositionError(opts, error, getCurrentPosition, "getCurrentPosition", statuses);
+        });
     }, opts);
+}
+
+function onClickWatchPosition(){
+    retryCount = 0;
+    watchPosition();
 }
 
 function watchPosition(){
@@ -65,9 +87,22 @@ function watchPosition(){
         var lon = position.coords.longitude;
         log("Latest position: "+lat+","+lon);
     }, function(error){
-        logError("Error setting watch position", error);
-        checkLocationPermissions();
+        logError("Position watch error", error);
+        checkAndroidLocationPermissions(function(statuses){
+            handlePositionError(opts, error, watchPosition, "watchPosition", statuses);
+        });
     }, opts);
+}
+
+function handlePositionError(opts, error, retryFn, retryFnName, statuses){
+    if(error.code === 3 && osDetails.apiLevel === 31 && retryCount < 1){
+        log("Retrying "+retryFnName+" on Android API 31 after TIMEOUT");
+        retryCount++;
+        retryFn();
+    }else if(error.code === 1 && osDetails.apiLevel >= 32 && opts.enableHighAccuracy){
+        // Check if approximate (COARSE but not FINE) permission has been set on API >=32 when precise location was requested
+        requirePreciseLocation(android.gteApi32.preciseLocationRequired, statuses);
+    }
 }
 
 function clearWatch(){
@@ -78,43 +113,47 @@ function clearWatch(){
     }
 }
 
-function checkLocationPermissions(){
+function checkAndroidLocationPermissions(cb){
     if(platform !== 'android') return;
+    
+    cb = cb || function(){};
 
-    cordova.plugins.diagnostic.getLocationAuthorizationStatuses(function(statuses){
-        var coarsePermission = statuses[cordova.plugins.diagnostic.permission.ACCESS_COARSE_LOCATION],
-            finePermission = statuses[cordova.plugins.diagnostic.permission.ACCESS_FINE_LOCATION];
-
-        // Check if only COARSE but not FINE permission (i.e. approximate) has been set on API < 32 due to bug in WebView
-        if(coarsePermission === cordova.plugins.diagnostic.permissionStatus.GRANTED){
-            if(finePermission !== cordova.plugins.diagnostic.permissionStatus.GRANTED){
-                if(osDetails.apiLevel < 32){
-                    if(finePermission === cordova.plugins.diagnostic.permissionStatus.NOT_REQUESTED || finePermission === cordova.plugins.diagnostic.permissionStatus.DENIED_ONCE){
-                        // Ask user to allow accurate location via permission prompt
-                        showConfirm(function(i){
-                            if(i === 1){
-                                cordova.plugins.diagnostic.requestLocationAuthorization(function(newStatus){
-                                    log("Newly authorized location status: " + newStatus);
-                                }, handleError,
-                                   cordova.plugins.diagnostic.locationAuthorizationMode.WHEN_IN_USE,
-                                   cordova.plugins.diagnostic.locationAccuracyAuthorization.FULL
-                                );
-                            }
-                        }, androidConfirmAccuratePermission.message.replace('%os_version%', osDetails.version) + androidConfirmAccuratePermission.confirmAllow, androidConfirmAccuratePermission.title)
-                    }else if(finePermission === cordova.plugins.diagnostic.permissionStatus.DENIED_ALWAYS){
-                        // Ask user to allow accurate location via Settings
-                        showConfirm(function(i){
-                            if(i === 1){
-                                showAlert(androidHowToChangeAccuracyInSettings.message, androidHowToChangeAccuracyInSettings.title, function(){
-                                    cordova.plugins.diagnostic.switchToSettings();
-                                });
-                            }
-                        }, androidConfirmAccuratePermission.message.replace('%os_version%', osDetails.version) + androidConfirmAccuratePermission.confirmSwitchToSettings, androidConfirmAccuratePermission.title)
-                    }
-                }
-            }
+    diagnostic.getLocationAuthorizationStatuses(function(statuses){
+        if(osDetails.apiLevel < 32){
+            // Check if approximate (COARSE but not FINE) permission has been set on API < 32 due to bug in WebView
+            requirePreciseLocation(android.lteApi32.approximateLocationPermissionIssue, statuses);
         }
+        cb(statuses);
     }, handleError);
+}
+
+function requirePreciseLocation(reason, statuses){
+    var coarsePermission = statuses[diagnostic.permission.ACCESS_COARSE_LOCATION],
+        finePermission = statuses[diagnostic.permission.ACCESS_FINE_LOCATION];
+    if(coarsePermission === diagnostic.permissionStatus.GRANTED && finePermission !== diagnostic.permissionStatus.GRANTED){
+        if(finePermission === diagnostic.permissionStatus.NOT_REQUESTED || finePermission === diagnostic.permissionStatus.DENIED_ONCE){
+            // Ask user to allow accurate location via permission prompt
+            showConfirm(function(i){
+                if(i === 1){
+                    diagnostic.requestLocationAuthorization(function(newStatus){
+                            log("Newly authorized location status: " + newStatus);
+                        }, handleError,
+                        diagnostic.locationAuthorizationMode.WHEN_IN_USE,
+                        diagnostic.locationAccuracyAuthorization.FULL
+                    );
+                }
+            }, reason.confirmMessage + android.confirmAllowViaPrompt, reason.confirmTitle)
+        }else if(finePermission === diagnostic.permissionStatus.DENIED_ALWAYS){
+            // Ask user to allow accurate location via Settings
+            showConfirm(function(i){
+                if(i === 1){
+                    showAlert(android.howToEnablePreciseLocationInSettings.message, android.howToEnablePreciseLocationInSettings.title, function(){
+                        diagnostic.switchToSettings();
+                    });
+                }
+            }, reason.confirmMessage + android.confirmSwitchToSettings, reason.confirmTitle)
+        }
+    }
 }
 
 // UI logging
@@ -133,7 +172,9 @@ function log(msg, opts){
 }
 
 function logError(msg, error){
-    if(typeof error === 'object'){
+    if(error instanceof GeolocationPositionError){
+        msg += ': code='+error.code+'; message='+error.message;
+    }else if(typeof error === 'object'){
         msg += ': ' + JSON.stringify(error);
     }else if(typeof error === 'string'){
         msg += ': ' + error;
